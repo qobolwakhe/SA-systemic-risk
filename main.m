@@ -10,6 +10,7 @@
 %       Dta     = A t by 2 vector with index returns and firm's equity returns
 %       TOTL    = A t by 1 vector with the total amount of liabilities of the firm
 %       MCAP    = A t by 1 vector with the market capitalisation of the firm
+%       EQ      = A t by 1 vector with the book value of equity of the firm
 %       alpha   = A scalar between [0,1], risk level of our VaR
 %       k       = A scalar between [0,1], Prudential Capital Required (k*LTQ), usually sets at 4% or 8%
 %       M       = Order of symmetric innovations in DCC model
@@ -22,12 +23,6 @@
 %       Q       = Non-negative, scalar integer representing the number of conditional covariance lags in
 %                 the univariate volatility models
 %       GJRTYPE = Either 1 (TARCH/AVGARCH) or 2 (GJR-GARCH/GARCH/ARCH)
-
-
-%       Data available from Thompson Reuters Eikon. Spreadsheet attached is
-%       linked to the application and will automatically update when
-%       connected. User is also to update the fields and obtain alternate
-%       time series.
 %
 % OUTPUT
 %       PARAMETERS   - Estimated parameters.  Output depends on METHOD.
@@ -44,10 +39,6 @@
 %       MES          -A t by 1 conditional MES matrix
 %       SRISK        -A t by 1 SRISK matrix
 % 
-%  Script also outputs a csv file in the directory OUT\ with the dates, MES
-%  and SRISK for each individual firm
-
-
 
 %   The dynamics of a the correlations in a DCC model are:
 %     3-stage:
@@ -55,134 +46,58 @@
 %     + g(1)*v(t-1)'*v(t-1) + ... + g(l)*v(t-l)*v(t-l) + b(1)*Q(t-1) + ... + b(n)*Q(t-1)
 %
 
+%       Data sourced from Bloomberg. Users can update and make changes to
+%       the sample using the attachded excel spreadsheet. The spreadsheet
+%       already contains data for 108 firms. To alter the sample being
+%       imported into the model, users must change ONLY the tickers in the
+%       third row of the 'Share Prices' worksheet. Users can also add firms
+%       not in the dataset by doing so in the 'All' worksheet and updating
+%       the lookup ranges.
+%      
+%       Script will output csv files in the directory OUT\ with the dates, MES
+%       and SRISK for each individual firm
+
+
+
 %Author: Qobolwakhe Dube
 
 %% Add functions to path:
 %       Point directory to location of extracted files
 
-addpath(genpath('C:\Users\Lwakhe\Dropbox\Project 3\RunMyCode_SysRiskMeasures_R2015b'))
-addpath(genpath('C:\Users\Lwakhe\Dropbox\Project 3\MFE'))
+addpath(genpath('E:\SysRiskMeasures'))
+addpath(genpath('E:\MFE'))
 
 
 mkdir('OUT')                                                    %Output will be saved here
 
 %% Reading in data:
-%   NB!! First check for duplicate rows wrt dates; after updating
-%   spreadsheet, delete rows marked as duplicates in first column
-%       this is a technical problem that will sometimes happen when
-%       updating reuters data
 
-data.Price = xlsread('MES_data.xlsx','Share prices','C5:R4320');
-data.Index = xlsread('MES_data.xlsx','Index','C3:C4437');
-data.Liabilities = xlsread('MES_data.xlsx','Liabilities','D3:S96');
+data.Price = xlsread('MES_data.xlsx','Share prices','C5:R4246');
+data.Index = xlsread('MES_data.xlsx','Index','C3:C4244');
+data.Liabilities = xlsread('MES_data.xlsx','Liabilities','D3:S4244');
 data.MarkCap = xlsread('MES_data.xlsx','Market Cap','C3:R4330');
-data.Equity = xlsread('MES_data.xlsx','Equity','C3:R95');
+data.Equity = xlsread('MES_data.xlsx','Equity','C3:R4244');
 [~,~,Series] = xlsread('MES_data.xlsx','Share prices','C3:R4');                           % Cell containing tickers and names of respective equities
-[~, ~, raw_dates, dates] = xlsread('MES_data.xlsx','Share prices','B5:B4320','',@convertSpreadsheetExcelDates);
+[~, ~, raw_dates, dates] = xlsread('MES_data.xlsx','Share prices','B5:B4246','',@convertSpreadsheetExcelDates);
 dates = dates(:,1);
 dates = datetime([dates{:,1}].', 'ConvertFrom', 'Excel');
 n = length(Series);
-
-    %cleaning data
-[~,~,duplicates.Index] = xlsread('MES_data.xlsx','Index','A3:B4437');
-df = strcmp('Duplicate',duplicates.Index);
-data.Index(df(:,1))=[];
-duplicates.Index(df(:,1),:)=[];
-
-
-[~,~,duplicates.Price] = xlsread('MES_data.xlsx','Share prices','A5:B4320');
-df = strcmp('Duplicate',duplicates.Price);
-data.Price(df(:,1),:)=[];
-dates(df(:,1))=[];
-duplicates.Price(df(:,1),:)=[];
-
-
-[~,~,duplicates.MarkCap] = xlsread('MES_data.xlsx','Market Cap','A3:B4330');
-df = strcmp('Duplicate',duplicates.MarkCap);
-data.MarkCap(df(:,1),:)=[];
-duplicates.MarkCap(df(:,1),:)=[];
-
-
-[f,g,h]=intersect(duplicates.Price(:,2),duplicates.MarkCap(:,2));
-data.Price=data.Price(g,:);
-dates=dates(g,:);
-duplicates.Price=duplicates.Price(g,:);
-data.MarkCap=data.MarkCap(h,:);
-
-[f,g,h]=intersect(duplicates.Price(:,2),duplicates.Index(:,2));
-data.Price=data.Price(g,:);
-dates=dates(g,:);
-data.MarkCap=data.MarkCap(g,:);
-data.Index=data.Index(h,:);
-
-% Assumption wrt liabilities is that value of debt at the last
-% reported date 
-
-
-[~, ~, tempraw_dates, tempdates] = xlsread('MES_data.xlsx','Liabilities','C3:C96','',@convertSpreadsheetExcelDates);
-tempdates = tempdates(:,1);
-tempdates = datetime([tempdates{:,1}].', 'ConvertFrom', 'Excel');
-temp=[];
-
-for i=1:n
-    df=find(~isnan(data.Liabilities(:,i)));
-    in=length(df);
-    
-    
-    if dates(1)<tempdates(df(1))
-        temp1=nan(sum(dates<tempdates(df(1))),1);
-    else
-        temp1=repmat(data.Liabilities(df(1),i),sum(dates<tempdates(df(1))),1);
-    end
-
-    for j=2:in
-        temp1a=repmat(data.Liabilities(df(j-1),i),sum(dates<tempdates(df(j))& dates>=tempdates(df(j-1))),1);
-        temp1=[temp1;temp1a];
-    end
-   temp1a=repmat(data.Liabilities(df(j),i),sum(dates>=tempdates(df(j))),1);
-   temp1=[temp1;temp1a];
-   temp=[temp temp1];
-end
-
-LTL=temp;
-
-[~, ~, tempraw_dates, tempdates] = xlsread('MES_data.xlsx','Equity','B3:B95','',@convertSpreadsheetExcelDates);
-tempdates = tempdates(:,1);
-tempdates = datetime([tempdates{:,1}].', 'ConvertFrom', 'Excel');
-temp=[];
-
-for i=1:n
-    df=find(~isnan(data.Equity(:,i)));
-    in=length(df);
-    
-    
-    if dates(1)<tempdates(df(1))
-        temp1=nan(sum(dates<tempdates(df(1))),1);
-    else
-        temp1=repmat(data.Equity(df(1),i),sum(dates<tempdates(df(1))),1);
-    end
-
-    for j=2:in
-        temp1a=repmat(data.Equity(df(j-1),i),sum(dates<tempdates(df(j))& dates>=tempdates(df(j-1))),1);
-        temp1=[temp1;temp1a];
-    end
-   temp1a=repmat(data.Equity(df(j),i),sum(dates>=tempdates(df(j))),1);
-   temp1=[temp1;temp1a];
-   temp=[temp temp1];
-end
-
-EQ = temp ;
 
 
 %% Computing log returns
 
 Returns.Firm = data.Price(2:end,:)./data.Price(1:end-1,:);
+absret= Returns.Firm - 1;
 Log_ret.Firm = log(Returns.Firm);
 
-Returns.Index = data.Index(2:end,:)./data.Index(1:end-1,:);
-Log_ret.Index = log(Returns.Index);
+Returns.Index = data.Index(2:end,:)./data.Index(1:end-1,:) -1 ;
+%Log_ret.Index = log(Returns.Index);
 
 %% Computing each firm's MES and SRISK
+
+LTL=data.Liabilities;
+EQ=data.Equity;
+
 
 M = 1;
 L = 0;
@@ -198,10 +113,11 @@ k = 0.08;
 for i= 1:n
     
     TOTL =  LTL(2:end,i);
+    TOTE =  EQ(2:end,i);
     MCAP = data.MarkCap(2:end,i);
-    Dta = [Log_ret.Index Log_ret.Firm(:,i) ];
+    Dta = [Returns.Index absret(:,i) ];
     
-    R = [Dta TOTL MCAP];
+    R = [Dta TOTL TOTE];
     
     %deleting rows with NaN entries
     b = dates(2:end,1);                     
@@ -212,7 +128,7 @@ for i= 1:n
     
     Dta = R(:,1:2);
     TOTL = R(:,3);
-    MCAP = R(:,4);
+    TOTE = R(:,4);
              
     
     
@@ -241,7 +157,7 @@ for i= 1:n
     %     Compute SRISK
     
     eval(strcat('LRMES = (1-exp(-18.*MES.',Series{2,i},'));')) %without simulation assumption from Acharya et al 2012
-    eval(strcat('SRISK.',Series{2,i},' = k.*TOTL - (1-k).*(1-LRMES).*MCAP;'));
+    eval(strcat('SRISK.',Series{2,i},' = k.*TOTL - (1-k).*(1-LRMES).*TOTE;'));
     
 end
 
@@ -249,18 +165,21 @@ end
 z= zeros(length(dates),n);
 
 for i=1:n
+    
     eval(strcat('g = x.',Series{2,i},';'));
     [E, ia, ib] = intersect(dates,g);
     
     eval(strcat('h = SRISK.',Series{2,i},';'));
     z(ia,i)= h;
 end
+
 z(z<0)=0;
 SRISK_tot=sum(z,2);
 D=z./repmat(SRISK_tot,1,n);
 
 % Aligning dates
 for i=1:n
+    
     eval(strcat('g = x.',Series{2,i},';'));
     [E, ia, ib] = intersect(dates,g);
     
@@ -280,22 +199,26 @@ ranking=[];
 % Institutions with no contribution to systemic risk (i.e. negative or Nan) on a given day assigned a rank of 0 
 
 for i=1:T
-    ind = zeros(1,19);
+    
+    ind = zeros(1,n);
     [s, index]=sort(D(i,:),'descend');
-    ind(index)=1:19;
+    ind(index)=1:n;
     ind(D(i,:)==0)=0;
     ind(isnan(D(i,:)))=0;
     ranking = [ranking; ind];
+    
 end
 
 % Aligning dates
 for i=1:n
+    
     eval(strcat('g = x.',Series{2,i},';'));
     [E, ia, ib] = intersect(dates,g);
     
     w = ranking(:,i);
     w=w(ia);
     eval(strcat('SRISK_rank.',Series{2,i},'=w;'))
+    
 end
 
 %% Writing output to csv file
@@ -358,6 +281,8 @@ subplot(3,1,3)
             xlabel('','fontsize',8,'fontweight','b','color','k');
             ylabel('%','fontsize',8,'fontweight','b','color','k');
             set(gca,'ylim',[0 1],'ytick', linspace(0,1,5),'YTickLabel',100*linspace(0,1,5))
+       
+                
             
 % identifying largest institutions
 % NB! graph legend has to be changed manually
@@ -371,31 +296,29 @@ ia = sort(ia);
 
 figure
 hold on
-for j=ia
+for j=1:7
 eval(strcat('plot(x.',Series{2,j},',tsmovavg(100*SRISK_per.',Series{2,j},',''s'',30,1))'))
 end
 title('SRISK Contribution of 5 Biggest Institutions by Market Cap - 30 Day MA','FontSize',10,'fontweight','b','color','k')
 xlabel('','fontsize',8,'fontweight','b','color','k');
 ylabel('%','fontsize',8,'fontweight','b','color','k');
-legend('Industrial & Commercial Bank of China','China Construction Bank corp',...
-    'Agricultural Bank of China ltd','Bank of Communications ltd','China Merchants Bank')
 
 hold off
 saveas(gcf,'OUT\SRISKper.png')
 
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% Look through data to identify largest institutiions within regions
-figure
-hold on
-for j=[1 9 11 14 16]
-eval(strcat('plot(x.',Series{2,j},',tsmovavg(100*SRISK_per.',Series{2,j},',''s'',30,1))'))
-end
-title('SRISK Contribution of 5 Biggest Institutions by Region - 30 Day MA','FontSize',10,'fontweight','b','color','k')
-xlabel('','fontsize',8,'fontweight','b','color','k');
-ylabel('%','fontsize',8,'fontweight','b','color','k');
-legend('Industrial and commercial bank of china','OAO Sberbank of Russia',...
-    'Itau Unibanco holdings SA','Barclays Africa','State bank of India')
+  hold on
+  for j=[1 2 3 4 5 6 7]
+          eval(strcat('plot(x.',Series{2,j},',SRISK.',Series{2,j},')'));
 
-hold off
-saveas(gcf,'OUT\SRISKreg.png')
+       
+  end 
+
+
+tyu=[]
+for j = 1:n
+    eval(strcat('ayt=SRISK_per.',Series{2,j},',SRISK_per.',Series{2,j},'(end)'));
+    tyu=[tyu ayt(end)];
+end 
