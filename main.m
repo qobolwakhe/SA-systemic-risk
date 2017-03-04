@@ -156,7 +156,7 @@ for i= 1:n
     
     %     Compute SRISK
     
-    eval(strcat('LRMES = (1-exp(-18.*MES.',Series{2,i},'));')) %without simulation assumption from Acharya et al 2012
+    eval(strcat('LRMES = (1-exp(-18.*MES.',Series{2,i},'));'))              %without simulation
     eval(strcat('SRISK.',Series{2,i},' = k.*TOTL - (1-k).*(1-LRMES).*TOTE;'));
     
 end
@@ -221,6 +221,7 @@ for i=1:n
     
 end
 
+
 %% Writing output to csv file
 
 for i=1:n
@@ -246,6 +247,17 @@ for i=1:n
     end
    fclose('all');
 end
+
+
+SRISKcont=zeros(T,n);
+for i=1:n
+    eval(strcat('g = x.',Series{2,i},';'));
+    [E, ia, ib] = intersect(dates,g);
+    SRISKcont(ia)= eval(strcat('SRISK_per.',Series{2,i}));
+    
+end
+
+
 
 %% Graphs
 %   To switch between firms, change the index j for the respective series
@@ -304,21 +316,6 @@ xlabel('','fontsize',8,'fontweight','b','color','k');
 ylabel('%','fontsize',8,'fontweight','b','color','k');
 
 hold off
-saveas(gcf,'OUT\SRISKper.png')
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-  hold on
-  for j=[1 2 3 4 5 6 7]
-          eval(strcat('plot(x.',Series{2,j},',SRISK.',Series{2,j},')'));
-
-       
-  end 
-
-
-tyu=[]
-for j = 1:n
-    eval(strcat('ayt=SRISK_per.',Series{2,j},',SRISK_per.',Series{2,j},'(end)'));
-    tyu=[tyu ayt(end)];
-end 
