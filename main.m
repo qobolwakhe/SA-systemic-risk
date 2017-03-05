@@ -66,6 +66,7 @@
 
 addpath(genpath('E:\SysRiskMeasures'))
 addpath(genpath('E:\MFE'))
+addpath(genpath('E:\cell2csv'))
 
 
 mkdir('OUT')                                                    %Output will be saved here
@@ -223,6 +224,8 @@ end
 
 %% Writing output to csv file
 
+
+% MES, SRISK, SRISK contriution and ranking by instituton
 for i=1:n
     time_ = eval(strcat('cellstr(datestr(x.',Series{2,i},'))'));
     MESts = eval(strcat('MES.',Series{2,i}));
@@ -237,7 +240,7 @@ for i=1:n
     TEMP = [time_ MESts SRISKts SRISKperts SRISKrnkts];
 
     
-    
+    ID = strcat('''OUT\',Series{1,i},'.csv''');
     fileID = fopen(eval(ID),'w');
     fprintf(fileID,'%s, %s, %s, %s, %s\n','Date','MES','SRISK', 'SRISK contribution', 'SRISK ranking');
     
@@ -246,6 +249,24 @@ for i=1:n
     end
    fclose('all');
 end
+
+
+%SRISK contribution of all institutions
+
+SRISKcont=zeros(T-1,n);
+for i=1:n
+    eval(strcat('g = x.',Series{2,i},';'));
+    [E, ia, ib] = intersect(dates(2:end),g);
+    
+    SRISKcont(ia,i)=eval(strcat('SRISK_per.',Series{2,i}));
+    
+end
+
+SRISKcont= num2cell(SRISKcont);
+SRISKcont= [Series(1,:);SRISKcont];
+SRISKcont= [['Date';cellstr(datestr(dates(2:end)))] SRISKcont ];
+
+cell2csv('OUT\SRISKcontribution.csv',SRISKcont,',')
 
 %% Graphs
 %   To switch between firms, change the index j for the respective series
@@ -285,7 +306,7 @@ subplot(3,1,3)
                 
             
 % identifying largest institutions
-% NB! graph legend has to be changed manually
+% NB! graph legend has to be inserted manually
 cap = data.MarkCap(end,:);
 capm = cap;
 capm(isnan(cap))=[];
@@ -296,9 +317,11 @@ ia = sort(ia);
 
 figure
 hold on
-for j=1:7
+
+for j=ia
 eval(strcat('plot(x.',Series{2,j},',tsmovavg(100*SRISK_per.',Series{2,j},',''s'',30,1))'))
 end
+
 title('SRISK Contribution of 5 Biggest Institutions by Market Cap - 30 Day MA','FontSize',10,'fontweight','b','color','k')
 xlabel('','fontsize',8,'fontweight','b','color','k');
 ylabel('%','fontsize',8,'fontweight','b','color','k');
@@ -308,17 +331,3 @@ saveas(gcf,'OUT\SRISKper.png')
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-  hold on
-  for j=[1 2 3 4 5 6 7]
-          eval(strcat('plot(x.',Series{2,j},',SRISK.',Series{2,j},')'));
-
-       
-  end 
-
-
-tyu=[]
-for j = 1:n
-    eval(strcat('ayt=SRISK_per.',Series{2,j},',SRISK_per.',Series{2,j},'(end)'));
-    tyu=[tyu ayt(end)];
-end 
