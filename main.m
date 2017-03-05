@@ -85,14 +85,11 @@ dates = datetime([dates{:,1}].', 'ConvertFrom', 'Excel');
 n = length(Series);
 
 
-%% Computing log returns
+%% Computing returns
 
-Returns.Firm = data.Price(2:end,:)./data.Price(1:end-1,:);
-absret= Returns.Firm - 1;
-Log_ret.Firm = log(Returns.Firm);
+Returns.Firm = data.Price(2:end,:)./data.Price(1:end-1,:) -1 ;
 
 Returns.Index = data.Index(2:end,:)./data.Index(1:end-1,:) -1 ;
-%Log_ret.Index = log(Returns.Index);
 
 %% Computing each firm's MES and SRISK
 
@@ -116,9 +113,9 @@ for i= 1:n
     TOTL =  LTL(2:end,i);
     TOTE =  EQ(2:end,i);
     MCAP = data.MarkCap(2:end,i);
-    Dta = [Returns.Index absret(:,i) ];
+    Dta = [Returns.Index Returns.Firm(:,i) ];
     
-    R = [Dta TOTL TOTE];
+    R = [Dta TOTL TOTE MCAP];
     
     %deleting rows with NaN entries
     b = dates(2:end,1);                     
@@ -130,6 +127,7 @@ for i= 1:n
     Dta = R(:,1:2);
     TOTL = R(:,3);
     TOTE = R(:,4);
+    MCAP = R(:,5);
              
     
     
@@ -285,11 +283,11 @@ subplot(3,1,1)
 
 %   SRISK
 subplot(3,1,2)
-sc=1000000000;
+sc=1000;
     eval(strcat('plot(x.',Series{2,j},',SRISK.',Series{2,j},')'));
             title('SRISK','FontSize',10,'fontweight','b','color','k');
             xlabel('','fontsize',8,'fontweight','b','color','k');
-            ylabel('$Billions','fontsize',8,'fontweight','b','color','k');
+            ylabel('R Billion','fontsize',8,'fontweight','b','color','k');
     eval(strcat('set(gca,''ylim'',[0 (max(SRISK.',Series{2,j},')+0.1*max(SRISK.',Series{2,j},'))]',...
             ',''ytick'',linspace(0,(max(SRISK.',Series{2,j},')+0.1*max(SRISK.',Series{2,j},')),5),''YTickLabel''',...
             ',linspace(0,(max(SRISK.',Series{2,j},')+0.1*max(SRISK.',Series{2,j},'))./sc,5))'));
